@@ -1,14 +1,15 @@
 package com.backuper.app.data
 
-import android.content.ContentUris
 import android.content.Context
 import android.net.Uri
-import android.provider.MediaStore
+import android.os.Environment
+import java.io.File
 import java.io.InputStream
 import java.security.MessageDigest
 
 data class MediaFile(
     val uri: Uri,
+    val file: File,
     val name: String,
     val size: Long,
     val hash: String,
@@ -17,61 +18,51 @@ data class MediaFile(
 
 object MediaScanner {
 
-    fun scanMedia(context: Context): List<MediaFile> {
+    private val TARGET_EXTENSIONS = setOf(
+        "jpg", "jpeg", "png", "webp", "gif", "heic", "bmp", "tiff", "raw"
+    )
+
+    fun scanAllFiles(context: Context): List<MediaFile> {
         val mediaList = mutableListOf<MediaFile>()
+        val root = Environment.getExternalStorageDirectory()
         
-        val projection = arrayOf(
-            MediaStore.Files.FileColumns._ID,
-            MediaStore.Files.FileColumns.DISPLAY_NAME,
-            MediaStore.Files.FileColumns.SIZE,
-            MediaStore.Files.FileColumns.MIME_TYPE,
-            MediaStore.Files.FileColumns.DATA
-        )
-
-        // Target extensions from Jack's request
-        val selection = (
-            "(" + MediaStore.Files.FileColumns.MIME_TYPE + " LIKE 'image/%' OR " +
-            MediaStore.Files.FileColumns.MIME_TYPE + " LIKE 'video/%' OR " +
-            MediaStore.Files.FileColumns.DISPLAY_NAME + " LIKE '%.raw' OR " +
-            MediaStore.Files.FileColumns.DISPLAY_NAME + " LIKE '%.tiff' OR " +
-            MediaStore.Files.FileColumns.DISPLAY_NAME + " LIKE '%.bmp' OR " +
-            MediaStore.Files.FileColumns.DISPLAY_NAME + " LIKE '%.heic')"
-        )
-
-        val queryUri = MediaStore.Files.getContentUri("external")
-
-        context.contentResolver.query(queryUri, projection, selection, null, null)?.use { cursor ->
-            val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns._ID)
-            val nameColumn = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DISPLAY_NAME)
-            val sizeColumn = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.SIZE)
-            val mimeColumn = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.MIME_TYPE)
-            val dataColumn = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATA)
-
-            while (cursor.moveToNext()) {
-                val id = cursor.getLong(idColumn)
-                val name = cursor.getString(nameColumn) ?: "unknown"
-                val size = cursor.getLong(sizeColumn)
-                val mimeType = cursor.getString(mimeColumn) ?: "application/octet-stream"
-                val path = cursor.getString(dataColumn)
-
-                // Skip temp/cache files
-                if (path?.contains("cache", ignoreCase = true) == true || 
-                    path?.contains("tmp", ignoreCase = true) == true) continue
-
-                val contentUri = ContentUris.withAppendedId(queryUri, id)
-                
-                // Calculate hash
-                val hash = calculateHash(context, contentUri) ?: continue
-
-                mediaList.add(MediaFile(contentUri, name, size, hash, mimeType))
-            }
-        }
+        scanDirectory(root, mediaList)
+        
         return mediaList
     }
 
-    private fun calculateHash(context: Context, uri: Uri): String? {
+    private fun scanDirectory(dir: File, list: MutableList<MediaFile>) {
+        val files = dir.listFiles() ?: return
+        
+        for (file in files) {
+            if (file.isDirectory) {
+                // Skip some known junk folders
+                if (file.name.startsWith(".") || 
+                    file.name.equals("Android", ignoreCase = true)) continue
+                
+                scanDirectory(file, list)
+            } else {
+                val ext = file.extension.lowercase()
+                if (TARGET_EXTENSIONS.contains(ext)) {
+                    val hash = calculateHash(file) ?: continue
+                    list.add(
+                        MediaFile(
+                            uri = Uri.fromFile(file),
+                            file = file,
+                            name = file.name,
+                            size = file.length(),
+                            hash = hash,
+                            mimeType = getMimeType(ext)
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    private fun calculateHash(file: File): String? {
         return try {
-            context.contentResolver.openInputStream(uri)?.use { input ->
+            file.inputStream().use { input ->
                 val digest = MessageDigest.getInstance("SHA-256")
                 val buffer = ByteArray(8192)
                 var bytesRead: Int
@@ -82,6 +73,19 @@ object MediaScanner {
             }
         } catch (e: Exception) {
             null
+        }
+    }
+
+    private fun getMimeType(ext: String): String {
+        return when (ext) {
+            "jpg", "jpeg" -> "image/jpeg"
+            "png" -> "image/png"
+            "webp" -> "image/webp"
+            "gif" -> "image/gif"
+            "heic" -> "image/heic"
+            "bmp" -> "image/x-ms-bmp"
+            "tiff" -> "image/tiff"
+            else -> "image/*"
         }
     }
 }

@@ -1,9 +1,13 @@
 package com.backuper.app
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
+import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -21,18 +25,17 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.work.WorkInfo
 import com.backuper.app.ui.BackupViewModel
-import com.backuper.app.worker.UploadWorker
 
 class MainActivity : ComponentActivity() {
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
-        val granted = permissions.entries.all { it.value }
-        if (!granted) {
-            Toast.makeText(this, "Permissions required for backup", Toast.LENGTH_SHORT).show()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            if (!Environment.isExternalStorageManager()) {
+                requestAllFilesAccess()
+            }
         }
     }
 
@@ -66,12 +69,21 @@ class MainActivity : ComponentActivity() {
             permissions.add(Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED)
         }
 
-        val toRequest = permissions.filter {
-            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
-        }
+        requestPermissionLauncher.launch(permissions.toTypedArray())
+    }
 
-        if (toRequest.isNotEmpty()) {
-            requestPermissionLauncher.launch(toRequest.toTypedArray())
+    private fun requestAllFilesAccess() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            try {
+                val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
+                intent.addCategory("android.intent.category.DEFAULT")
+                intent.data = Uri.parse("package:${packageName}")
+                startActivity(intent)
+            } catch (e: Exception) {
+                val intent = Intent()
+                intent.action = Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION
+                startActivity(intent)
+            }
         }
     }
 }
@@ -82,9 +94,6 @@ fun BackupScreen(backupViewModel: BackupViewModel = viewModel()) {
     val token by backupViewModel.token.collectAsState()
     val isUploading by backupViewModel.isUploading.collectAsState()
     var wifiOnly by remember { mutableStateOf(true) }
-    
-    // In a real app, observe WorkInfo from ViewModel
-    // For this demonstration, we'll keep it simple
     
     Column(
         modifier = Modifier
@@ -97,14 +106,14 @@ fun BackupScreen(backupViewModel: BackupViewModel = viewModel()) {
         Spacer(modifier = Modifier.height(48.dp))
         
         Text(
-            text = "BACKUPER",
-            fontSize = 32.sp,
+            text = "BACKUPER (GOFILE)",
+            fontSize = 28.sp,
             fontWeight = FontWeight.Bold,
             color = Color.White
         )
         
         Text(
-            text = "Personal Media Backup to Drive",
+            text = "Deep Scan & Backup to GoFile",
             fontSize = 14.sp,
             color = Color.Gray
         )
@@ -114,7 +123,7 @@ fun BackupScreen(backupViewModel: BackupViewModel = viewModel()) {
         OutlinedTextField(
             value = token,
             onValueChange = { backupViewModel.onTokenChange(it) },
-            label = { Text("Google Drive Access Token") },
+            label = { Text("GoFile API Token") },
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(12.dp),
             colors = TextFieldDefaults.outlinedTextFieldColors(
@@ -177,6 +186,6 @@ fun UploadProgressUI() {
             color = Color.White,
             trackColor = Color.DarkGray
         )
-        Text("Scanning & Uploading...", color = Color.White, fontSize = 12.sp)
+        Text("Deep Scanning & Uploading...", color = Color.White, fontSize = 12.sp)
     }
 }
