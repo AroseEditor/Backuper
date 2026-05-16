@@ -78,9 +78,9 @@ class MainActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BackupScreen(viewModel: BackupViewModel = viewModel()) {
-    val token by viewModel.token.collectAsState()
-    val isUploading by viewModel.isUploading.collectAsState()
+fun BackupScreen(backupViewModel: BackupViewModel = viewModel()) {
+    val token by backupViewModel.token.collectAsState()
+    val isUploading by backupViewModel.isUploading.collectAsState()
     var wifiOnly by remember { mutableStateOf(true) }
     
     // In a real app, observe WorkInfo from ViewModel
@@ -113,7 +113,7 @@ fun BackupScreen(viewModel: BackupViewModel = viewModel()) {
 
         OutlinedTextField(
             value = token,
-            onValueChange = { viewModel.onTokenChange(it) },
+            onValueChange = { backupViewModel.onTokenChange(it) },
             label = { Text("Google Drive Access Token") },
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(12.dp),
@@ -143,7 +143,7 @@ fun BackupScreen(viewModel: BackupViewModel = viewModel()) {
             UploadProgressUI()
             
             Button(
-                onClick = { viewModel.stopBackup() },
+                onClick = { backupViewModel.stopBackup() },
                 modifier = Modifier.fillMaxWidth().height(56.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = Color.Red),
                 shape = RoundedCornerShape(12.dp)
@@ -152,7 +152,7 @@ fun BackupScreen(viewModel: BackupViewModel = viewModel()) {
             }
         } else {
             Button(
-                onClick = { viewModel.startBackup(wifiOnly) },
+                onClick = { backupViewModel.startBackup(wifiOnly) },
                 modifier = Modifier.fillMaxWidth().height(56.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = Color.White),
                 shape = RoundedCornerShape(12.dp)
