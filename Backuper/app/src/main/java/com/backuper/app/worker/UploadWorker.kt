@@ -24,26 +24,28 @@ class UploadWorker(context: Context, params: WorkerParameters) : CoroutineWorker
     private val goFileService = RetrofitClient.instance
     private val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
+    private var foundCount = 0
+    private var uploadedCount = 0
+
     companion object {
-        const val CHANNEL_ID = "backup_channel_v2"
-        const val NOTIFICATION_ID = 102
-        const val KEY_PROGRESS = "progress"
-        const val KEY_FILE_NAME = "file_name"
+        const val CHANNEL_ID = "backup_channel_v3"
+        const val NOTIFICATION_ID = 103
+        const val KEY_FOUND_COUNT = "found_count"
+        const val KEY_UPLOADED_COUNT = "uploaded_count"
+        const val KEY_CURRENT_FILE = "current_file"
     }
 
     override suspend fun doWork(): Result {
         return try {
             val token = EncryptionManager.getToken(applicationContext) ?: return Result.failure()
             
-            // Ensure notification channel exists before setForeground
             createNotificationChannel()
-            setForeground(createForegroundInfo(0, 0, "Scanning files..."))
+            setForeground(createForegroundInfo("Starting streaming scan..."))
 
             // 1. Get the best server
             val serverResponse = try {
                 goFileService.getServer()
             } catch (e: Exception) {
-                Log.e("Backuper", "Failed to get server", e)
                 return Result.retry()
             }
 
@@ -53,25 +55,30 @@ class UploadWorker(context: Context, params: WorkerParameters) : CoroutineWorker
             val server = serverResponse.body()?.data?.server ?: return Result.retry()
             val uploadUrl = "https://$server.gofile.io/uploadFile"
 
-            // 2. Scan all files
-            val filesToScan = MediaScanner.scanAllFiles(applicationContext)
-            val filesToUpload = filesToScan.filter { !db.fileDao().isUploaded(it.hash) }
-            
-            var uploadedCount = 0
-            val totalCount = filesToUpload.size
+            // 2. Start streaming scan and upload
+            MediaScanner.scanStreaming { media ->
+                if (isStopped) return@scanStreaming
+                
+                foundCount++
+                
+                // Use a runBlocking-like approach or just handle it sequentially since scanStreaming is blocking
+                // But in a CoroutineWorker, we should be careful. 
+                // Since scanStreaming is synchronous, this is fine.
+                
+                kotlinx.coroutines.runBlocking {
+                    if (!db.fileDao().isUploaded(media.hash)) {
+                        updateNotification(foundCount, uploadedCount, media.name)
+                        setProgress(workDataOf(
+                            KEY_FOUND_COUNT to foundCount,
+                            KEY_UPLOADED_COUNT to uploadedCount,
+                            KEY_CURRENT_FILE to media.name
+                        ))
 
-            for (media in filesToUpload) {
-                if (isStopped) break
-
-                updateNotification(uploadedCount, totalCount, media.name)
-                setProgress(workDataOf(
-                    KEY_PROGRESS to (if (totalCount > 0) uploadedCount * 100 / totalCount else 0),
-                    KEY_FILE_NAME to media.name
-                ))
-
-                if (uploadToGoFile(uploadUrl, token, media)) {
-                    db.fileDao().insert(UploadedFile(media.hash, media.name))
-                    uploadedCount++
+                        if (uploadToGoFile(uploadUrl, token, media)) {
+                            db.fileDao().insert(UploadedFile(media.hash, media.name))
+                            uploadedCount++
+                        }
+                    }
                 }
             }
 
@@ -102,13 +109,12 @@ class UploadWorker(context: Context, params: WorkerParameters) : CoroutineWorker
         }
     }
 
-    private fun createForegroundInfo(current: Int, total: Int, fileName: String): ForegroundInfo {
+    private fun createForegroundInfo(status: String): ForegroundInfo {
         val notification = NotificationCompat.Builder(applicationContext, CHANNEL_ID)
-            .setContentTitle("Backuper is running")
+            .setContentTitle("Backing up to GoFile")
             .setSmallIcon(android.R.drawable.stat_sys_upload)
             .setOngoing(true)
-            .setProgress(total, current, false)
-            .setContentText(fileName)
+            .setContentText(status)
             .build()
 
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -118,13 +124,13 @@ class UploadWorker(context: Context, params: WorkerParameters) : CoroutineWorker
         }
     }
 
-    private fun updateNotification(current: Int, total: Int, fileName: String) {
+    private fun updateNotification(found: Int, uploaded: Int, fileName: String) {
         val notification = NotificationCompat.Builder(applicationContext, CHANNEL_ID)
-            .setContentTitle("Backing up to GoFile...")
+            .setContentTitle("Uploading: $fileName")
             .setSmallIcon(android.R.drawable.stat_sys_upload)
             .setOngoing(true)
-            .setProgress(total, current, false)
-            .setContentText("$fileName ($current/$total)")
+            .setContentText("Found: $found | Uploaded: $uploaded")
+            .setSubText("GoFile Backup")
             .build()
         notificationManager.notify(NOTIFICATION_ID, notification)
     }

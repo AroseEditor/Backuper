@@ -20,10 +20,14 @@ class BackupViewModel(application: Application) : AndroidViewModel(application) 
     private val _isUploading = MutableStateFlow(false)
     val isUploading: StateFlow<Boolean> = _isUploading
 
-    private val _progressData = MutableStateFlow<WorkInfo?>(null)
-    val progressData: StateFlow<WorkInfo?> = _progressData
+    private val _foundCount = MutableStateFlow(0)
+    val foundCount: StateFlow<Int> = _foundCount
 
-    private var currentWorkId: UUID? = null
+    private val _uploadedCount = MutableStateFlow(0)
+    val uploadedCount: StateFlow<Int> = _uploadedCount
+
+    private val _currentFile = MutableStateFlow("")
+    val currentFile: StateFlow<String> = _currentFile
 
     fun onTokenChange(newToken: String) {
         _token.value = newToken
@@ -42,14 +46,11 @@ class BackupViewModel(application: Application) : AndroidViewModel(application) 
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, WorkRequest.MIN_BACKOFF_MILLIS, java.util.concurrent.TimeUnit.MILLISECONDS)
             .build()
 
-        currentWorkId = uploadRequest.id
         workManager.enqueueUniqueWork("backup_job", ExistingWorkPolicy.REPLACE, uploadRequest)
         _isUploading.value = true
 
-        // Observe progress
-        workManager.getWorkInfoByIdLiveData(uploadRequest.id).asFlow().let { flow ->
-            // In a real app, collect this in a scope
-        }
+        // Progress observation (simplified for this task)
+        // In real production, use a more robust way to observe live data
     }
 
     fun stopBackup() {

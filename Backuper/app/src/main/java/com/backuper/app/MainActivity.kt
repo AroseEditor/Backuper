@@ -107,6 +107,9 @@ class MainActivity : ComponentActivity() {
 fun BackupScreen(backupViewModel: BackupViewModel = viewModel()) {
     val token by backupViewModel.token.collectAsState()
     val isUploading by backupViewModel.isUploading.collectAsState()
+    val foundCount by backupViewModel.foundCount.collectAsState()
+    val uploadedCount by backupViewModel.uploadedCount.collectAsState()
+    val currentFile by backupViewModel.currentFile.collectAsState()
     var wifiOnly by remember { mutableStateOf(true) }
     
     Column(
@@ -120,14 +123,14 @@ fun BackupScreen(backupViewModel: BackupViewModel = viewModel()) {
         Spacer(modifier = Modifier.height(48.dp))
         
         Text(
-            text = "BACKUPER (GOFILE)",
-            fontSize = 28.sp,
+            text = "BACKUPER",
+            fontSize = 32.sp,
             fontWeight = FontWeight.Bold,
             color = Color.White
         )
         
         Text(
-            text = "Deep Scan & Backup to GoFile",
+            text = "Live Sync to GoFile",
             fontSize = 14.sp,
             color = Color.Gray
         )
@@ -163,7 +166,7 @@ fun BackupScreen(backupViewModel: BackupViewModel = viewModel()) {
         Spacer(modifier = Modifier.weight(1f))
 
         if (isUploading) {
-            UploadProgressUI()
+            StatusCard(foundCount, uploadedCount, currentFile)
             
             Button(
                 onClick = { backupViewModel.stopBackup() },
@@ -189,17 +192,34 @@ fun BackupScreen(backupViewModel: BackupViewModel = viewModel()) {
 }
 
 @Composable
-fun UploadProgressUI() {
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+fun StatusCard(found: Int, uploaded: Int, currentFile: String) {
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.DarkGray.copy(alpha = 0.3f)),
+        shape = RoundedCornerShape(16.dp)
     ) {
-        LinearProgressIndicator(
-            modifier = Modifier.fillMaxWidth().height(8.dp),
-            color = Color.White,
-            trackColor = Color.DarkGray
-        )
-        Text("Deep Scanning & Uploading...", color = Color.White, fontSize = 12.sp)
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("Items Found:", color = Color.Gray, fontSize = 12.sp)
+                Text(found.toString(), color = Color.White, fontWeight = FontWeight.Bold)
+            }
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("Items Uploaded:", color = Color.Gray, fontSize = 12.sp)
+                Text(uploaded.toString(), color = Color.White, fontWeight = FontWeight.Bold)
+            }
+            
+            LinearProgressIndicator(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                color = Color.White,
+                trackColor = Color.DarkGray
+            )
+            
+            Text(
+                text = if (currentFile.isNotEmpty()) "Syncing: $currentFile" else "Scanning...",
+                color = Color.White.copy(alpha = 0.7f),
+                fontSize = 11.sp,
+                maxLines = 1
+            )
+        }
     }
 }

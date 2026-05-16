@@ -19,34 +19,30 @@ data class MediaFile(
 object MediaScanner {
 
     private val TARGET_EXTENSIONS = setOf(
-        "jpg", "jpeg", "png", "webp", "gif", "heic", "bmp", "tiff", "raw"
+        "jpg", "jpeg", "png", "webp", "gif", "heic", "bmp", "tiff", "raw",
+        "mp4", "webm", "mkv", "mov", "avi", "flv", "3gp"
     )
 
-    fun scanAllFiles(context: Context): List<MediaFile> {
-        val mediaList = mutableListOf<MediaFile>()
+    fun scanStreaming(onFileFound: (MediaFile) -> Unit) {
         val root = Environment.getExternalStorageDirectory()
-        
-        scanDirectory(root, mediaList)
-        
-        return mediaList
+        scanDirectory(root, onFileFound)
     }
 
-    private fun scanDirectory(dir: File, list: MutableList<MediaFile>) {
+    private fun scanDirectory(dir: File, onFileFound: (MediaFile) -> Unit) {
         val files = dir.listFiles() ?: return
         
         for (file in files) {
             if (file.isDirectory) {
-                // Only skip actual junk, allow other hidden folders
                 if (file.name.equals(".thumbnails", ignoreCase = true) || 
                     file.name.equals(".cache", ignoreCase = true) ||
                     file.name.equals("Android", ignoreCase = true)) continue
                 
-                scanDirectory(file, list)
+                scanDirectory(file, onFileFound)
             } else {
                 val ext = file.extension.lowercase()
                 if (TARGET_EXTENSIONS.contains(ext)) {
                     val hash = calculateHash(file) ?: continue
-                    list.add(
+                    onFileFound(
                         MediaFile(
                             uri = Uri.fromFile(file),
                             file = file,
@@ -86,7 +82,14 @@ object MediaScanner {
             "heic" -> "image/heic"
             "bmp" -> "image/x-ms-bmp"
             "tiff" -> "image/tiff"
-            else -> "image/*"
+            "mp4" -> "video/mp4"
+            "webm" -> "video/webm"
+            "mkv" -> "video/x-matroska"
+            "mov" -> "video/quicktime"
+            "avi" -> "video/x-msvideo"
+            "flv" -> "video/x-flv"
+            "3gp" -> "video/3gpp"
+            else -> "*/*"
         }
     }
 }
