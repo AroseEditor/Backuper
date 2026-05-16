@@ -111,7 +111,11 @@ class UploadWorker(context: Context, params: WorkerParameters) : CoroutineWorker
             .setContentText(fileName)
             .build()
 
-        return ForegroundInfo(NOTIFICATION_ID, notification)
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ForegroundInfo(NOTIFICATION_ID, notification, android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+        } else {
+            ForegroundInfo(NOTIFICATION_ID, notification)
+        }
     }
 
     private fun updateNotification(current: Int, total: Int, fileName: String) {

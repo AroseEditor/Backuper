@@ -36,8 +36,9 @@ object MediaScanner {
         
         for (file in files) {
             if (file.isDirectory) {
-                // Skip some known junk folders
-                if (file.name.startsWith(".") || 
+                // Only skip actual junk, allow other hidden folders
+                if (file.name.equals(".thumbnails", ignoreCase = true) || 
+                    file.name.equals(".cache", ignoreCase = true) ||
                     file.name.equals("Android", ignoreCase = true)) continue
                 
                 scanDirectory(file, list)
