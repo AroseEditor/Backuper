@@ -22,11 +22,10 @@ jobs:
           distribution: 'temurin'
           cache: gradle
 
-      - name: Grant Execute Permission for Gradlew
-        run: chmod +x Backuper/gradlew
-
       - name: Build Debug APK
-        run: cd Backuper && ./gradlew assembleDebug
+        run: |
+          cd Backuper
+          gradle assembleDebug
 
       - name: Create Release Draft
         uses: softprops/action-gh-release@v2
