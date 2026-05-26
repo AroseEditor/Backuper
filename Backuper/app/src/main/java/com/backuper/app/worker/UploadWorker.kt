@@ -13,10 +13,13 @@ import com.backuper.app.data.MediaScanner
 import com.backuper.app.db.AppDatabase
 import com.backuper.app.db.UploadedFile
 import com.backuper.app.security.EncryptionManager
+import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.Channel
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
 import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
+import java.util.concurrent.atomic.AtomicInteger
 
 class UploadWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
 
@@ -24,8 +27,8 @@ class UploadWorker(context: Context, params: WorkerParameters) : CoroutineWorker
     private val goFileService = RetrofitClient.instance
     private val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
-    private var foundCount = 0
-    private var uploadedCount = 0
+    private val foundCount = AtomicInteger(0)
+    private val uploadedCount = AtomicInteger(0)
 
     companion object {
         const val CHANNEL_ID = "backup_channel_v3"
@@ -33,11 +36,14 @@ class UploadWorker(context: Context, params: WorkerParameters) : CoroutineWorker
         const val KEY_FOUND_COUNT = "found_count"
         const val KEY_UPLOADED_COUNT = "uploaded_count"
         const val KEY_CURRENT_FILE = "current_file"
+        
+        // Concurrent uploads
+        private const val MAX_CONCURRENT_UPLOADS = 4
     }
 
-    override suspend fun doWork(): Result {
-        return try {
-            val token = EncryptionManager.getToken(applicationContext) ?: return Result.failure()
+    override suspend fun doWork(): Result = coroutineScope {
+        try {
+            val token = EncryptionManager.getToken(applicationContext) ?: return@coroutineScope Result.failure()
             
             createNotificationChannel()
             setForeground(createForegroundInfo("Starting streaming scan..."))
@@ -46,41 +52,81 @@ class UploadWorker(context: Context, params: WorkerParameters) : CoroutineWorker
             val serverResponse = try {
                 goFileService.getServer()
             } catch (e: Exception) {
-                return Result.retry()
+                return@coroutineScope Result.retry()
             }
 
             if (!serverResponse.isSuccessful || serverResponse.body()?.status != "ok") {
-                return Result.retry()
+                return@coroutineScope Result.retry()
             }
-            val server = serverResponse.body()?.data?.server ?: return Result.retry()
+            val server = serverResponse.body()?.data?.server ?: return@coroutineScope Result.retry()
             val uploadUrl = "https://$server.gofile.io/uploadFile"
 
-            // 2. Start streaming scan and upload
-            MediaScanner.scanStreaming { media ->
-                if (isStopped) return@scanStreaming
-                
-                foundCount++
-                
-                // Use a runBlocking-like approach or just handle it sequentially since scanStreaming is blocking
-                // But in a CoroutineWorker, we should be careful. 
-                // Since scanStreaming is synchronous, this is fine.
-                
-                kotlinx.coroutines.runBlocking {
-                    if (!db.fileDao().isUploaded(media.hash)) {
-                        updateNotification(foundCount, uploadedCount, media.name)
-                        setProgress(workDataOf(
-                            KEY_FOUND_COUNT to foundCount,
-                            KEY_UPLOADED_COUNT to uploadedCount,
-                            KEY_CURRENT_FILE to media.name
-                        ))
+            // Producer-consumer channel to upload discovered files concurrently
+            val uploadChannel = Channel<MediaFile>(capacity = 100)
 
-                        if (uploadToGoFile(uploadUrl, token, media)) {
-                            db.fileDao().insert(UploadedFile(media.hash, media.name))
-                            uploadedCount++
+            // Live progress updater
+            var lastUpdateMillis = 0L
+            var lastCurrentFile = ""
+            fun postProgress(currentFile: String) {
+                val now = System.currentTimeMillis()
+                if (now - lastUpdateMillis > 300L || currentFile != lastCurrentFile) {
+                    lastUpdateMillis = now
+                    lastCurrentFile = currentFile
+                    val f = foundCount.get()
+                    val u = uploadedCount.get()
+                    updateNotification(f, u, currentFile)
+                    setProgressAsync(workDataOf(
+                        KEY_FOUND_COUNT to f,
+                        KEY_UPLOADED_COUNT to u,
+                        KEY_CURRENT_FILE to currentFile
+                    ))
+                }
+            }
+
+            // Launch worker consumers
+            val consumers = List(MAX_CONCURRENT_UPLOADS) {
+                launch(Dispatchers.IO) {
+                    for (media in uploadChannel) {
+                        if (isStopped) break
+                        
+                        try {
+                            if (!db.fileDao().isUploaded(media.hash)) {
+                                postProgress(media.name)
+                                if (uploadToGoFile(uploadUrl, token, media)) {
+                                    db.fileDao().insert(UploadedFile(media.hash, media.name))
+                                    uploadedCount.incrementAndGet()
+                                    postProgress(media.name)
+                                }
+                            }
+                        } catch (e: Exception) {
+                            Log.e("Backuper", "Upload error for ${media.name}", e)
                         }
                     }
                 }
             }
+
+            // Producer: Scan and feed files to the channel
+            withContext(Dispatchers.IO) {
+                MediaScanner.scanStreaming(applicationContext) { media ->
+                    if (isStopped) return@scanStreaming
+                    foundCount.incrementAndGet()
+                    postProgress(media.name)
+                    uploadChannel.send(media)
+                }
+            }
+
+            uploadChannel.close()
+            consumers.forEach { it.join() }
+
+            // Final update
+            val f = foundCount.get()
+            val u = uploadedCount.get()
+            updateNotification(f, u, "Scan and upload complete!")
+            setProgressAsync(workDataOf(
+                KEY_FOUND_COUNT to f,
+                KEY_UPLOADED_COUNT to u,
+                KEY_CURRENT_FILE to "Done"
+            ))
 
             Result.success()
         } catch (e: Exception) {
