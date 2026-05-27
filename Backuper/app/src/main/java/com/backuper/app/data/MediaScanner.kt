@@ -33,17 +33,46 @@ object MediaScanner {
             // Ignore/Log
         }
 
-        // 2. Scan via Directory Walking (Fallback/Deep Scan - handles dot-prefixed and hidden safes)
+        // 2. Scan via Directory Walking (Fallback/Deep Scan - handles all storage roots)
         try {
-            val root = Environment.getExternalStorageDirectory()
-            scanDirectory(root) { media ->
-                if (foundPaths.add(media.file.absolutePath)) {
-                    onFileFound(media)
+            val roots = getStorageRoots()
+            for (root in roots) {
+                scanDirectory(root) { media ->
+                    if (foundPaths.add(media.file.absolutePath)) {
+                        onFileFound(media)
+                    }
                 }
             }
         } catch (e: Exception) {
             // Ignore/Log
         }
+    }
+
+    private fun getStorageRoots(): List<File> {
+        val roots = mutableListOf<File>()
+        // Primary external storage
+        roots.add(Environment.getExternalStorageDirectory())
+        
+        // Scan /storage for secondary mounts (SD cards, OTG, etc.)
+        try {
+            val storageDir = File("/storage")
+            if (storageDir.exists() && storageDir.isDirectory) {
+                val files = storageDir.listFiles()
+                if (files != null) {
+                    for (file in files) {
+                        if (file.isDirectory && file.canRead()) {
+                            val name = file.name
+                            if (name != "self" && name != "emulated" && !roots.any { it.absolutePath == file.absolutePath }) {
+                                roots.add(file)
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            // Ignore
+        }
+        return roots.distinctBy { it.absolutePath }
     }
 
     private suspend fun scanMediaStore(context: Context, onFileFound: suspend (MediaFile) -> Unit) {
