@@ -7,8 +7,8 @@ import retrofit2.http.*
 
 interface GoFileService {
 
-    @GET("getServer")
-    suspend fun getServer(): Response<ServerResponse>
+    @GET("servers")
+    suspend fun getServers(): Response<ServersResponse>
 
     @POST
     @Multipart
@@ -20,8 +20,9 @@ interface GoFileService {
     ): Response<UploadResponse>
 }
 
-data class ServerResponse(val status: String, val data: ServerData)
-data class ServerData(val server: String)
+data class ServersResponse(val status: String, val data: ServersData)
+data class ServersData(val servers: List<ServerInfo>)
+data class ServerInfo(val name: String, val zone: String)
 
 data class UploadResponse(val status: String, val data: UploadData?)
 data class UploadData(val downloadPage: String, val code: String, val parentFolder: String, val fileId: String)

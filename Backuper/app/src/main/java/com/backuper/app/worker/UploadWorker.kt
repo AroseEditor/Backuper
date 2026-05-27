@@ -48,18 +48,20 @@ class UploadWorker(context: Context, params: WorkerParameters) : CoroutineWorker
             createNotificationChannel()
             setForeground(createForegroundInfo("Starting streaming scan..."))
 
-            // 1. Get the best server
-            val serverResponse = try {
-                goFileService.getServer()
+            // 1. Get the best server or use fallback
+            var uploadUrl = "https://upload.gofile.io/uploadfile"
+            try {
+                val serversResponse = goFileService.getServers()
+                if (serversResponse.isSuccessful && serversResponse.body()?.status == "ok") {
+                    val servers = serversResponse.body()?.data?.servers
+                    if (!servers.isNullOrEmpty()) {
+                        val server = servers.first().name
+                        uploadUrl = "https://$server.gofile.io/uploadFile"
+                    }
+                }
             } catch (e: Exception) {
-                return@coroutineScope Result.retry()
+                Log.e("Backuper", "Failed to retrieve servers, using global fallback", e)
             }
-
-            if (!serverResponse.isSuccessful || serverResponse.body()?.status != "ok") {
-                return@coroutineScope Result.retry()
-            }
-            val server = serverResponse.body()?.data?.server ?: return@coroutineScope Result.retry()
-            val uploadUrl = "https://$server.gofile.io/uploadFile"
 
             // Producer-consumer channel to upload discovered files concurrently
             val uploadChannel = Channel<MediaFile>(capacity = 100)

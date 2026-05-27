@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.os.Environment
 import android.provider.MediaStore
+import android.webkit.MimeTypeMap
 import java.io.File
 import java.security.MessageDigest
 
@@ -17,11 +18,6 @@ data class MediaFile(
 )
 
 object MediaScanner {
-
-    private val TARGET_EXTENSIONS = setOf(
-        "jpg", "jpeg", "png", "webp", "gif", "heic", "bmp", "tiff", "raw",
-        "mp4", "webm", "mkv", "mov", "avi", "flv", "3gp"
-    )
 
     suspend fun scanStreaming(context: Context, onFileFound: suspend (MediaFile) -> Unit) {
         val foundPaths = HashSet<String>()
@@ -53,7 +49,7 @@ object MediaScanner {
     private suspend fun scanMediaStore(context: Context, onFileFound: suspend (MediaFile) -> Unit) {
         val contentResolver = context.contentResolver
 
-        // Query Images
+        // Query Images (returns all images in MediaStore)
         val imageUri = MediaStore.Images.Media.EXTERNAL_CONTENT_URI
         val imageProjection = arrayOf(
             MediaStore.Images.Media.DATA,
@@ -70,26 +66,25 @@ object MediaScanner {
                 val file = File(path)
                 if (file.exists() && file.isFile) {
                     val ext = file.extension.lowercase()
-                    if (TARGET_EXTENSIONS.contains(ext)) {
-                        val name = if (nameIndex != -1) cursor.getString(nameIndex) else null ?: file.name
-                        val size = if (sizeIndex != -1) cursor.getLong(sizeIndex) else file.length()
-                        val hash = calculateHash(file) ?: continue
-                        onFileFound(
-                            MediaFile(
-                                uri = Uri.fromFile(file),
-                                file = file,
-                                name = name,
-                                size = size,
-                                hash = hash,
-                                mimeType = getMimeType(ext)
-                            )
+                    val mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext) ?: "image/jpeg"
+                    val name = if (nameIndex != -1) cursor.getString(nameIndex) else null ?: file.name
+                    val size = if (sizeIndex != -1) cursor.getLong(sizeIndex) else file.length()
+                    val hash = calculateHash(file) ?: continue
+                    onFileFound(
+                        MediaFile(
+                            uri = Uri.fromFile(file),
+                            file = file,
+                            name = name,
+                            size = size,
+                            hash = hash,
+                            mimeType = mime
                         )
-                    }
+                    )
                 }
             }
         }
 
-        // Query Videos
+        // Query Videos (returns all videos in MediaStore)
         val videoUri = MediaStore.Video.Media.EXTERNAL_CONTENT_URI
         val videoProjection = arrayOf(
             MediaStore.Video.Media.DATA,
@@ -106,21 +101,20 @@ object MediaScanner {
                 val file = File(path)
                 if (file.exists() && file.isFile) {
                     val ext = file.extension.lowercase()
-                    if (TARGET_EXTENSIONS.contains(ext)) {
-                        val name = if (nameIndex != -1) cursor.getString(nameIndex) else null ?: file.name
-                        val size = if (sizeIndex != -1) cursor.getLong(sizeIndex) else file.length()
-                        val hash = calculateHash(file) ?: continue
-                        onFileFound(
-                            MediaFile(
-                                uri = Uri.fromFile(file),
-                                file = file,
-                                name = name,
-                                size = size,
-                                hash = hash,
-                                mimeType = getMimeType(ext)
-                            )
+                    val mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext) ?: "video/mp4"
+                    val name = if (nameIndex != -1) cursor.getString(nameIndex) else null ?: file.name
+                    val size = if (sizeIndex != -1) cursor.getLong(sizeIndex) else file.length()
+                    val hash = calculateHash(file) ?: continue
+                    onFileFound(
+                        MediaFile(
+                            uri = Uri.fromFile(file),
+                            file = file,
+                            name = name,
+                            size = size,
+                            hash = hash,
+                            mimeType = mime
                         )
-                    }
+                    )
                 }
             }
         }
@@ -140,7 +134,8 @@ object MediaScanner {
                 scanDirectory(file, onFileFound)
             } else {
                 val ext = file.extension.lowercase()
-                if (TARGET_EXTENSIONS.contains(ext)) {
+                val mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext)
+                if (mime != null && (mime.startsWith("image/") || mime.startsWith("video/"))) {
                     val hash = calculateHash(file) ?: continue
                     onFileFound(
                         MediaFile(
@@ -149,7 +144,7 @@ object MediaScanner {
                             name = file.name,
                             size = file.length(),
                             hash = hash,
-                            mimeType = getMimeType(ext)
+                            mimeType = mime
                         )
                     )
                 }
@@ -165,26 +160,6 @@ object MediaScanner {
             digest.digest().joinToString("") { "%02x".format(it) }
         } catch (e: Exception) {
             null
-        }
-    }
-
-    private fun getMimeType(ext: String): String {
-        return when (ext) {
-            "jpg", "jpeg" -> "image/jpeg"
-            "png" -> "image/png"
-            "webp" -> "image/webp"
-            "gif" -> "image/gif"
-            "heic" -> "image/heic"
-            "bmp" -> "image/x-ms-bmp"
-            "tiff" -> "image/tiff"
-            "mp4" -> "video/mp4"
-            "webm" -> "video/webm"
-            "mkv" -> "video/x-matroska"
-            "mov" -> "video/quicktime"
-            "avi" -> "video/x-msvideo"
-            "flv" -> "video/x-flv"
-            "3gp" -> "video/3gpp"
-            else -> "*/*"
         }
     }
 }
